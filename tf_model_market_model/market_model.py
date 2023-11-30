@@ -7,13 +7,13 @@ class DummyMarketModel(tf.Module):
         super().__init__()
 
         inputs = {
-            "mediation_name": tf.string,
             "country": tf.string,
-            "model_type": tf.string,
             "game_id": tf.string,
-            "session_depth": tf.int64,
             "max_bid": tf.uint64,
-            "original_rev_share": tf.float64
+            "mediation_name": tf.string,
+            "model_type": tf.string,
+            "original_rev_share": tf.float64,
+            "session_depth": tf.int64,
         }
 
         self.predict = tf.function(
@@ -25,15 +25,15 @@ class DummyMarketModel(tf.Module):
 
     def _predict(self, features: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
         return {
-            "optimized_rev_share": np.float64(0.1),
-            "log_str": "some_log",
-            "prob_win_for_optimized_bid": np.float64(0.3),
-            "prob_win_for_economical_bid": np.float64(0.2),
-            "optimized_bid": np.uint64(1234),
             "economical_bid": np.uint64(1000),
+            "log_str": "some_log",
+            "optimized_rev_share": np.float64(0.1),
             "model_name": "baseline",
-            "model_version": "1.0-a",
             "model_timestamp": "20230127095932",
+            "model_version": "1.0-a",
+            "optimized_bid": np.uint64(1234),
+            "prob_win_for_economical_bid": np.float64(0.2),
+            "prob_win_for_optimized_bid": np.float64(0.3),
         }
 
 if __name__ == "__main__":

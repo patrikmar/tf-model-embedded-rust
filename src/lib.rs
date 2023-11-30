@@ -1,8 +1,8 @@
 use std::{collections::HashMap, ffi::c_int};
 
 use tensorflow::{
-    DataType, FetchToken, Graph, Operation, Result, SavedModelBundle, SessionOptions, SignatureDef, Tensor, TensorInfo,
-    DEFAULT_SERVING_SIGNATURE_DEF_KEY,
+    DataType, FetchToken, Graph, Operation, Result, SavedModelBundle, SessionOptions, SignatureDef,
+    Tensor, TensorInfo, DEFAULT_SERVING_SIGNATURE_DEF_KEY,
 };
 
 #[derive(Debug)]
@@ -19,11 +19,13 @@ struct SavedModel {
     output_ops: HashMap<String, OpAndIndexAndType>,
 }
 
+#[derive(Debug)]
 enum TensorModelTypes {
     Float32(Tensor<f32>),
     String(Tensor<String>),
     Float64(Tensor<f64>),
     Uint64(Tensor<u64>),
+    Int64(Tensor<i64>),
 }
 
 impl SavedModel {
@@ -69,31 +71,30 @@ impl SavedModel {
 
     fn predict(
         self: &Self,
-        inputs: HashMap<String, TensorModelTypes>,
+        inputs: Vec<(String, TensorModelTypes)>,
     ) -> Result<HashMap<String, Result<TensorModelTypes>>> {
         let session = &self.bundle.session;
         let mut sess_run = tensorflow::SessionRunArgs::new();
 
-        inputs
-            .iter()
-            .for_each(|(key, value)| {
-                match value {
-                    TensorModelTypes::Float32(v) => {
-                        sess_run.add_feed(&self.input_ops[key].op, self.input_ops[key].index, v);
-                    },
-                    TensorModelTypes::String(v) => {
-                        sess_run.add_feed(&self.input_ops[key].op, self.input_ops[key].index, v);
-                    }
-                    TensorModelTypes::Float64(v) => {
-                        sess_run.add_feed(&self.input_ops[key].op, self.input_ops[key].index, v)
-                    }
-                    TensorModelTypes::Uint64(v) => {
-                        sess_run.add_feed(&self.input_ops[key].op, self.input_ops[key].index, v)
-                    }
-                }
-            });
+        inputs.iter().for_each(|(key, value)| match value {
+            TensorModelTypes::Float32(v) => {
+                sess_run.add_feed(&self.input_ops[key].op, self.input_ops[key].index, v);
+            }
+            TensorModelTypes::String(v) => {
+                sess_run.add_feed(&self.input_ops[key].op, self.input_ops[key].index, v);
+            }
+            TensorModelTypes::Float64(v) => {
+                sess_run.add_feed(&self.input_ops[key].op, self.input_ops[key].index, v)
+            }
+            TensorModelTypes::Uint64(v) => {
+                sess_run.add_feed(&self.input_ops[key].op, self.input_ops[key].index, v)
+            }
+            TensorModelTypes::Int64(v) => {
+                sess_run.add_feed(&self.input_ops[key].op, self.input_ops[key].index, v)
+            }
+        });
 
-        let fetch_token_map: HashMap<String, FetchToken> = self
+        let fetch_token_vec: Vec<(String, FetchToken)> = self
             .output_ops
             .iter()
             .map(|(key, value)| -> (String, FetchToken) {
@@ -105,31 +106,33 @@ impl SavedModel {
         session.run(&mut sess_run)?;
 
         //here comes a loop over outputs and their mappings to model supported types
-        let result: HashMap<String, Result<TensorModelTypes>> = fetch_token_map
+        let result: HashMap<String, Result<TensorModelTypes>> = fetch_token_vec
             .into_iter()
-            .map(|(key, fetch_token)| -> Result<(String, Result<TensorModelTypes>)> {
-                let d_type: &DataType = &self.output_ops[&key].d_type;
-                let value = match d_type {
-                    DataType::Float => {
-                        let fetch = sess_run.fetch(fetch_token)?;
-                        Ok(TensorModelTypes::Float32(fetch))
-                    }
-                    DataType::Double => {
-                        let fetch = sess_run.fetch(fetch_token)?;
-                        Ok(TensorModelTypes::Float64(fetch))
-                    }
-                    DataType::String => {
-                        let fetch = sess_run.fetch(fetch_token)?;
-                        Ok(TensorModelTypes::String(fetch))
-                    }
-                    DataType::UInt64 => {
-                        let fetch = sess_run.fetch(fetch_token)?;
-                        Ok(TensorModelTypes::Uint64(fetch))
-                    }
-                    _ => panic!("not supported datatype"),
-                };
-                Ok((key, value))
-            })
+            .map(
+                |(key, fetch_token)| -> Result<(String, Result<TensorModelTypes>)> {
+                    let d_type: &DataType = &self.output_ops[&key].d_type;
+                    let value = match d_type {
+                        DataType::Float => {
+                            let fetch = sess_run.fetch(fetch_token)?;
+                            Ok(TensorModelTypes::Float32(fetch))
+                        }
+                        DataType::Double => {
+                            let fetch = sess_run.fetch(fetch_token)?;
+                            Ok(TensorModelTypes::Float64(fetch))
+                        }
+                        DataType::String => {
+                            let fetch = sess_run.fetch(fetch_token)?;
+                            Ok(TensorModelTypes::String(fetch))
+                        }
+                        DataType::UInt64 => {
+                            let fetch = sess_run.fetch(fetch_token)?;
+                            Ok(TensorModelTypes::Uint64(fetch))
+                        }
+                        _ => panic!("not supported datatype"),
+                    };
+                    Ok((key, value))
+                },
+            )
             .filter_map(|item| item.ok())
             .collect();
         return Ok(result);
@@ -214,28 +217,85 @@ mod tests {
     fn test_model_predict() {
         let filename = "tf_model_market_model/dummymodel/";
         let inputs = vec![
-            "mediation_name",
             "country",
-            "model_type",
             "game_id",
-            "session_depth",
             "max_bid",
+            "mediation_name",
+            "model_type",
             "original_rev_share",
+            "session_depth",
         ];
         let outputs = vec![
-            "optimized_rev_share",
-            "log_str",
-            "prob_win_for_optimized_bid",
-            "prob_win_for_economical_bid",
-            "optimized_bid",
             "economical_bid",
+            "log_str",
             "model_name",
             "model_version",
             "model_timestamp",
+            "optimized_bid",
+            "optimized_rev_share",
+            "prob_win_for_economical_bid",
+            "prob_win_for_optimized_bid",
         ];
 
         let model = SavedModel::load(filename, &inputs, &outputs);
 
-        let results = model.predict(inputs);
+        let input_tensors = vec![
+            (
+                "country".to_string(),
+                TensorModelTypes::String(create_string_tensor("FI")),
+            ),
+            (
+                "game_id".to_string(),
+                TensorModelTypes::String(create_string_tensor("12345")),
+            ),
+            (
+                "max_bid".to_string(),
+                TensorModelTypes::Uint64(create_uint64_tensor(12345)),
+            ),
+            (
+                "mediation_name".to_string(),
+                TensorModelTypes::String(create_string_tensor("med_name")),
+            ),
+            (
+                "model_type".to_string(),
+                TensorModelTypes::Uint64(create_uint64_tensor(1)),
+            ),
+            (
+                "session_depth".to_string(),
+                TensorModelTypes::Int64(create_int64_tensor(2)),
+            ),
+            (
+                "original_rev_share".to_string(),
+                TensorModelTypes::Float64(create_float64_tensor(0.66)),
+            ),
+        ];
+
+        let results = model.predict(input_tensors);
+        println!("results: {:?}", results);
+        assert!(results.is_ok());
+    }
+
+    fn create_string_tensor(value: &str) -> Tensor<String> {
+        let mut tensor = Tensor::new(&[1]);
+        tensor[0] = value.to_string();
+        tensor
+    }
+
+    fn create_uint64_tensor(value: u64) -> Tensor<u64> {
+        let mut tensor = Tensor::new(&[1]);
+        tensor[0] = value;
+        tensor
+    }
+
+    fn create_float64_tensor(value: f64) -> Tensor<f64> {
+        let mut tensor = Tensor::new(&[1]);
+        tensor[0] = value;
+        tensor
+    }
+
+    fn create_int64_tensor(value: i64) -> Tensor<i64> {
+        let mut tensor = Tensor::new(&[1]);
+        tensor[0] = value;
+        tensor
     }
 }
